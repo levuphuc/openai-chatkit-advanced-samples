@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 
-const backendTarget = process.env.BACKEND_URL ?? "http://127.0.0.1:8003";
+const backendTarget = process.env.BACKEND_URL ?? "http://127.0.0.1:8000";
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -15,6 +15,14 @@ export default defineConfig({
         changeOrigin: true,
       },
       "/assets": {
+        target: backendTarget,
+        changeOrigin: true,
+      },
+      "/images": {
+        target: backendTarget,
+        changeOrigin: true,
+      },
+      "/history": {
         target: backendTarget,
         changeOrigin: true,
       },

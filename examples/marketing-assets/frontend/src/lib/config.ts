@@ -15,6 +15,11 @@ export const CHATKIT_API_DOMAIN_KEY =
 export const ASSETS_API_URL =
   import.meta.env.VITE_ASSETS_API_URL ?? "/assets";
 
+export const HISTORY_THREADS_API_URL = "/history/threads";
+export const HISTORY_THREAD_API_URL = (threadId: string) => `/history/thread/${threadId}`;
+export const HISTORY_ASSETS_API_URL = "/history/assets";
+export const HISTORY_PRUNE_API_URL = "/history/prune";
+
 export const THEME_STORAGE_KEY = "chatkit-boilerplate-theme";
 
 export const GREETING = "Let's build a standout ad together";

@@ -1,0 +1,8 @@
+# Ignore all generated images
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# But keep the directory structure
+!.gitkeep

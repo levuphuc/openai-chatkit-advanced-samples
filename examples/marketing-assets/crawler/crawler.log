@@ -1,0 +1,22 @@
+nohup: ignoring input
+INFO:crawler-service:[main] Waiting for crawl jobs on Redis list 'crawl_jobs'...
+INFO:crawler-service:[main] Received job_id=da76899f-9ae7-4a76-ad67-fdfd423ef2be
+INFO:crawler-service:[crawl_job] job_id=da76899f-9ae7-4a76-ad67-fdfd423ef2be url=https://trieuvu.netlify.app/lien-he
+INFO:crawler-service:[crawl_job] job_id=da76899f-9ae7-4a76-ad67-fdfd423ef2be trying strategy=direct
+WARNING:crawler-service:[crawl_job] job_id=da76899f-9ae7-4a76-ad67-fdfd423ef2be strategy=direct detected error page, trying next
+INFO:crawler-service:[crawl_job] job_id=da76899f-9ae7-4a76-ad67-fdfd423ef2be trying strategy=spa_with_delay
+WARNING:crawler-service:[crawl_job] job_id=da76899f-9ae7-4a76-ad67-fdfd423ef2be strategy=spa_with_delay detected error page, trying next
+INFO:crawler-service:[crawl_job] job_id=da76899f-9ae7-4a76-ad67-fdfd423ef2be trying strategy=navigate_from_home
+INFO:crawler-service:[crawl_with_strategy] navigate strategy: loading https://trieuvu.netlify.app then clicking to /lien-he
+INFO:crawler-service:[crawl_job] job_id=da76899f-9ae7-4a76-ad67-fdfd423ef2be success with strategy=navigate_from_home
+INFO:crawler-service:[main] Published result for job_id=da76899f-9ae7-4a76-ad67-fdfd423ef2be
+INFO:crawler-service:[main] Received job_id=365ba77c-1e21-46b7-a33a-90f1b4e9f6c7
+INFO:crawler-service:[crawl_job] job_id=365ba77c-1e21-46b7-a33a-90f1b4e9f6c7 url=https://example.com
+INFO:crawler-service:[crawl_job] job_id=365ba77c-1e21-46b7-a33a-90f1b4e9f6c7 trying strategy=direct
+WARNING:crawler-service:[crawl_job] job_id=365ba77c-1e21-46b7-a33a-90f1b4e9f6c7 strategy=direct content too short (127 chars)
+INFO:crawler-service:[crawl_job] job_id=365ba77c-1e21-46b7-a33a-90f1b4e9f6c7 trying strategy=spa_with_delay
+WARNING:crawler-service:[crawl_job] job_id=365ba77c-1e21-46b7-a33a-90f1b4e9f6c7 strategy=spa_with_delay content too short (127 chars)
+INFO:crawler-service:[crawl_job] job_id=365ba77c-1e21-46b7-a33a-90f1b4e9f6c7 trying strategy=navigate_from_home
+WARNING:crawler-service:[crawl_job] job_id=365ba77c-1e21-46b7-a33a-90f1b4e9f6c7 strategy=navigate_from_home content too short (127 chars)
+INFO:crawler-service:[main] Published result for job_id=365ba77c-1e21-46b7-a33a-90f1b4e9f6c7
+^C

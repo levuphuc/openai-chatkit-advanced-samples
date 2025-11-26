@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
+from .persistence import get_persistence
 from datetime import datetime
+import logging
+from pathlib import Path
 from typing import Annotated, Any, AsyncIterator, Final, Literal, cast
 from uuid import uuid4
 
@@ -42,6 +46,11 @@ SUPPORTED_COLOR_SCHEMES: Final[frozenset[str]] = frozenset({"light", "dark"})
 CLIENT_THEME_TOOL_NAME: Final[str] = "switch_theme"
 OPENAI_IMAGE_MODEL: Final[str] = "gpt-image-1"
 MAX_IMAGE_ATTEMPTS: Final[int] = 3
+MAX_CONTENT_LENGTH: Final[int] = 10000  # Max characters for web content
+HTTP_TIMEOUT: Final[int] = 30  # Timeout for HTTP requests in seconds
+
+# Module logger
+logger = logging.getLogger(__name__)
 
 
 def _normalize_color_scheme(value: str) -> str:
@@ -57,6 +66,32 @@ def _normalize_color_scheme(value: str) -> str:
 
 def _gen_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex[:8]}"
+
+
+def _save_image_to_file(base64_data: str, image_id: str) -> str:
+    """Save base64 image data to PNG file and return the file path.
+    
+    Args:
+        base64_data: Base64 encoded image data (without data:image/png;base64, prefix)
+        image_id: Unique identifier for the image
+    
+    Returns:
+        Relative URL path to access the image (e.g., "/images/img_abc123.png")
+    """
+    # Create static/images directory if not exists
+    static_dir = Path(__file__).parent.parent / "static" / "images"
+    static_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate filename
+    filename = f"img_{image_id}.png"
+    file_path = static_dir / filename
+    
+    # Decode and save image
+    image_bytes = base64.b64decode(base64_data)
+    file_path.write_bytes(image_bytes)
+    
+    # Return URL path
+    return f"/images/{filename}"
 
 
 class AdAgentContext(AgentContext):
@@ -159,6 +194,27 @@ async def save_ad_asset(
         name="record_ad_asset",
         arguments=asset_arguments,
     )
+    # Persist asset in SQLite (taking first image if exists)
+    try:
+        persistence = get_persistence()
+        persistence.save_asset(
+            asset_id=asset.id,
+            thread_id=thread.id,
+            prompt="; ".join(sanitized_prompts) if sanitized_prompts else None,
+            image_path=asset.images[0] if asset.images else None,
+            metadata={
+                "product": asset.product,
+                "style": asset.style,
+                "tone": asset.tone,
+                "pitch": asset.pitch,
+                "headline": asset.headline,
+                "call_to_action": asset.call_to_action,
+                "image_prompts": asset.image_prompts,
+                "images": asset.images,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[persistence] failed saving asset id=%s error=%s", asset.id, exc)
     print(f"AD ASSET SAVED: {asset}")
     return {
         "asset_id": asset.id,
@@ -213,7 +269,14 @@ async def generate_ad_image(
             image_b64 = getattr(first, "b64_json", None)
             if not image_b64:
                 raise RuntimeError("Image generation produced an unexpected payload.")
+            
+            # Save image to file and get URL
+            image_id = _gen_id("img")
+            image_url = _save_image_to_file(image_b64, image_id)
+            
+            # Create base64 data URL for inline display
             data_url = f"data:image/png;base64,{image_b64}"
+            
             caption = f"Generated for prompt: {prompt}".strip()
             widget = Card(
                 children=[
@@ -239,12 +302,13 @@ async def generate_ad_image(
 
             updated_asset: AdAsset | None = None
             if latest_asset_id:
-                updated_asset = await ad_asset_store.append_image(latest_asset_id, data_url)
+                # Store image URL (downloadable) instead of data URL
+                updated_asset = await ad_asset_store.append_image(latest_asset_id, image_url)
                 if updated_asset is None:
                     latest_asset_id = None
 
             if not latest_asset_id:
-                pending_images.append(data_url)
+                pending_images.append(image_url)
                 metadata["pending_images"] = pending_images
             else:
                 metadata.pop("pending_images", None)
@@ -255,10 +319,27 @@ async def generate_ad_image(
                         arguments=updated_arguments,
                     )
                 else:
-                    metadata.setdefault("pending_images", []).append(data_url)
+                    metadata.setdefault("pending_images", []).append(image_url)
 
             thread.metadata = metadata
             await ctx.context.store.save_thread(thread, ctx.context.request_context)
+
+            # Persist an image asset entry (lightweight) if we updated an existing asset
+            try:
+                persistence = get_persistence()
+                persistence.save_asset(
+                    asset_id=updated_asset.id if updated_asset else image_id,
+                    thread_id=thread.id,
+                    prompt=prompt,
+                    image_path=image_url,
+                    metadata={"generated_via": "generate_ad_image", "size": normalized_size},
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "[persistence] failed saving image asset asset_id=%s error=%s",
+                    updated_asset.id if updated_asset else image_id,
+                    exc,
+                )
 
             return {
                 "status": "generated",
@@ -296,6 +377,98 @@ async def switch_theme(
     return {"theme": requested}
 
 
+@function_tool(
+    description_override=(
+        "Fetch and analyze content from a URL to get insights about style, messaging, "
+        "and marketing approach. Use this when user provides a competitor or reference URL."
+    )
+)
+async def fetch_web_content(
+    ctx: RunContextWrapper[AdAgentContext],
+    url: str,
+) -> dict[str, str]:
+    """Fetch and parse web content from a URL using Redis-backed crawler service.
+    
+    Args:
+        ctx: Agent context
+        url: Web URL to fetch (e.g., https://example.com)
+    
+    Returns:
+        Dict containing:
+        - status: "success" or "error"
+        - title: Page title
+        - description: Meta description
+        - headings: Main headings (H1, H2)
+        - content: Cleaned text content (max 10,000 chars)
+        - url: Original URL
+        - strategy: Crawl strategy used
+        - error: Error message (if failed)
+    """
+    try:
+        from .crawl_service import send_crawl_job, get_crawl_result
+        
+        logger.info("[fetch_web_content] start url=%s", url)
+        
+        # Validate URL
+        if not url.startswith(("http://", "https://")):
+            logger.warning("[fetch_web_content] invalid_url url=%s", url)
+            return {
+                "status": "error",
+                "error": "URL must start with http:// or https://",
+                "url": url,
+            }
+        
+        # Send crawl job to Redis queue
+        job_id = send_crawl_job(url)
+        logger.info(f"[fetch_web_content] sent job_id={job_id} url={url}")
+        
+        # Poll for result (30s timeout)
+        result = get_crawl_result(job_id, timeout=30)
+        
+        if result and result.get("status") == "success":
+            logger.info(
+                "[fetch_web_content] success url=%s strategy=%s title=%s content_len=%d",
+                url,
+                result.get("strategy", "unknown"),
+                result.get("title", "")[:50],
+                len(result.get("content", ""))
+            )
+            return {
+                "status": "success",
+                "url": url,
+                "title": result.get("title", "Untitled"),
+                "description": result.get("description", "No description available"),
+                "headings": result.get("headings", "No headings found"),
+                "content": result.get("content", ""),
+                "strategy": result.get("strategy", "unknown"),
+            }
+        elif result:
+            # Got result but failed
+            error_msg = result.get("error", "Crawl failed")
+            logger.error(f"[fetch_web_content] failed url={url} error={error_msg}")
+            return {
+                "status": "error",
+                "url": url,
+                "error": error_msg,
+            }
+        else:
+            # Timeout
+            logger.error(f"[fetch_web_content] timeout url={url}")
+            return {
+                "status": "error",
+                "url": url,
+                "error": "Crawl job timeout after 30 seconds. The crawler service may be down or overloaded.",
+            }
+        
+    except Exception as e:
+        logger.exception("[fetch_web_content] failed url=%s error=%s", url, str(e))
+        return {
+            "status": "error",
+            "url": url,
+            "error": f"Failed to fetch URL: {str(e)}",
+        }
+
+
 def _user_message_text(item: UserMessageItem) -> str:
     parts: list[str] = []
     for part in item.content:
@@ -311,7 +484,7 @@ class AdCreativeServer(ChatKitServer[dict[str, Any]]):
     def __init__(self) -> None:
         self.store: MemoryStore = MemoryStore()
         super().__init__(self.store)
-        tools = [save_ad_asset, switch_theme, generate_ad_image]
+        tools = [save_ad_asset, switch_theme, generate_ad_image, fetch_web_content]
         self.assistant = Agent[AdAgentContext](
             model=MODEL,
             name="Ad Generation Helper",
@@ -357,6 +530,29 @@ class AdCreativeServer(ChatKitServer[dict[str, Any]]):
         )
 
         async for event in stream_agent_response(agent_context, result):
+            # Intercept assistant messages for persistence
+            try:
+                if isinstance(getattr(event, "item", None), AssistantMessageItem):
+                    content_parts = []
+                    for part in getattr(event.item, "content", []) or []:
+                        text = getattr(part, "text", None)
+                        if text:
+                            content_parts.append(text)
+                    if content_parts:
+                        persistence = get_persistence()
+                        persistence.save_message(thread.id, "assistant", "\n".join(content_parts))
+                elif isinstance(getattr(event, "item", None), UserMessageItem):
+                    # user message already present; ensure persistence
+                    content_parts = []
+                    for part in getattr(event.item, "content", []) or []:
+                        text = getattr(part, "text", None)
+                        if text:
+                            content_parts.append(text)
+                    if content_parts:
+                        persistence = get_persistence()
+                        persistence.save_message(thread.id, "user", "\n".join(content_parts))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[persistence] failed saving message thread=%s error=%s", thread.id, exc)
             yield event
 
         if result.last_response_id is not None:
