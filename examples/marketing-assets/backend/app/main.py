@@ -92,6 +92,36 @@ async def history_prune(days: int = 30, vacuum: bool = True) -> dict[str, Any]:
     return result
 
 
+@app.delete("/history/thread/{thread_id}")
+async def delete_thread(thread_id: str) -> dict[str, Any]:
+    """Delete a thread and all its messages and assets."""
+    persistence = get_persistence()
+    result = persistence.delete_thread(thread_id)
+    return {"success": True, **result}
+
+
+@app.get("/history/thread/{thread_id}/info")
+async def get_thread_info(thread_id: str) -> dict[str, Any]:
+    """Get thread metadata."""
+    persistence = get_persistence()
+    info = persistence.get_thread_info(thread_id)
+    if info:
+        return info
+    return JSONResponse(
+        status_code=404,
+        content={"error": "Thread not found"}
+    )
+
+
+@app.put("/history/thread/{thread_id}/title")
+async def set_thread_title(thread_id: str, title: str) -> dict[str, Any]:
+    """Set or update a thread title for display in the UI."""
+    if not title:
+        return JSONResponse(status_code=400, content={"error": "title required"})
+    persistence = get_persistence()
+    return persistence.set_thread_title(thread_id, title)
+
+
 @app.get("/images/{filename}")
 async def download_image(filename: str) -> FileResponse:
     """Serve image files for download or display."""

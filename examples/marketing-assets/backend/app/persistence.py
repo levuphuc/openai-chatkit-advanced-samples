@@ -36,6 +36,16 @@ class SQLitePersistence:
                 )
                 """
             )
+            # Optional titles for threads (e.g., when user renames a thread)
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS thread_titles (
+                    thread_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
             self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS assets (
@@ -69,8 +79,16 @@ class SQLitePersistence:
         with self._lock:
             cur = self._conn.execute(
                 """
-                SELECT thread_id, COUNT(*) as message_count, MIN(created_at) as first_at, MAX(created_at) as last_at
-                FROM messages GROUP BY thread_id ORDER BY last_at DESC LIMIT ? OFFSET ?
+                SELECT m.thread_id,
+                       COUNT(*) as message_count,
+                       MIN(m.created_at) as first_at,
+                       MAX(m.created_at) as last_at,
+                       tt.title as title
+                FROM messages m
+                LEFT JOIN thread_titles tt ON tt.thread_id = m.thread_id
+                GROUP BY m.thread_id
+                ORDER BY last_at DESC
+                LIMIT ? OFFSET ?
                 """,
                 (limit, offset),
             )
@@ -81,6 +99,7 @@ class SQLitePersistence:
                 "message_count": r[1],
                 "first_at": r[2],
                 "last_at": r[3],
+                "title": r[4],
             }
             for r in rows
         ]
@@ -98,6 +117,54 @@ class SQLitePersistence:
         return [
             {"role": r[0], "content": r[1], "created_at": r[2]} for r in rows
         ]
+
+    def delete_thread(self, thread_id: str) -> Dict[str, int]:
+        """Delete all messages and assets for a thread."""
+        with self._lock, self._conn:
+            msg_cur = self._conn.execute(
+                "DELETE FROM messages WHERE thread_id = ?",
+                (thread_id,),
+            )
+            asset_cur = self._conn.execute(
+                "DELETE FROM assets WHERE thread_id = ?",
+                (thread_id,),
+            )
+            return {
+                "messages_deleted": msg_cur.rowcount,
+                "assets_deleted": asset_cur.rowcount,
+            }
+
+    def get_thread_info(self, thread_id: str) -> Optional[Dict[str, Any]]:
+        """Get thread metadata including first/last message timestamps."""
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT COUNT(*) as message_count, MIN(m.created_at) as first_at, MAX(m.created_at) as last_at, tt.title
+                FROM messages m
+                LEFT JOIN thread_titles tt ON tt.thread_id = m.thread_id
+                WHERE m.thread_id = ?
+                """,
+                (thread_id,),
+            )
+            row = cur.fetchone()
+        if row and row[0] > 0:
+            return {
+                "thread_id": thread_id,
+                "message_count": row[0],
+                "first_at": row[1],
+                "last_at": row[2],
+                "title": row[3],
+            }
+        return None
+
+    def set_thread_title(self, thread_id: str, title: str) -> Dict[str, Any]:
+        ts = datetime.utcnow().isoformat()
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO thread_titles(thread_id, title, updated_at) VALUES(?, ?, ?)\n                 ON CONFLICT(thread_id) DO UPDATE SET title=excluded.title, updated_at=excluded.updated_at",
+                (thread_id, title, ts),
+            )
+        return {"success": True, "thread_id": thread_id, "title": title}
 
     # -- Assets -------------------------------------------------------
     def save_asset(self, asset_id: str, thread_id: Optional[str], prompt: Optional[str], image_path: Optional[str], metadata: Dict[str, Any]) -> None:

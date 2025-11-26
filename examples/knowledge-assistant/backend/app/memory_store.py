@@ -38,7 +38,13 @@ class MemoryStore(Store[dict[str, Any]]):
     async def load_thread(self, thread_id: str, context: dict[str, Any]) -> ThreadMetadata:
         state = self._threads.get(thread_id)
         if not state:
-            raise NotFoundError(f"Thread {thread_id} not found")
+            # Auto-create thread if it doesn't exist instead of raising error
+            new_thread = ThreadMetadata(id=thread_id, created_at=datetime.utcnow())
+            self._threads[thread_id] = _ThreadState(
+                thread=new_thread,
+                items=[],
+            )
+            return new_thread
         return self._coerce_thread_metadata(state.thread)
 
     async def save_thread(self, thread: ThreadMetadata, context: dict[str, Any]) -> None:

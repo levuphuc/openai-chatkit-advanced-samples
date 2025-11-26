@@ -31,7 +31,12 @@ export function KnowledgeDocumentsPanel({
   });
 
   return (
-    <div className="flex h-full flex-col rounded-3xl border border-slate-200/60 bg-white/80 shadow-[0_35px_90px_-45px_rgba(15,23,42,0.55)] ring-1 ring-slate-200/60 backdrop-blur dark:border-slate-800/70 dark:bg-slate-900/70 dark:shadow-[0_45px_95px_-50px_rgba(15,23,42,0.85)] dark:ring-slate-800/60">
+    // Make the panel a positioned container and provide a portal root so the
+    // timing/log badge can be rendered inside this panel (so it appears above
+    // the Knowledge library and doesn't overlap the chat composer).
+    <div className="relative flex h-full flex-col rounded-3xl border border-slate-200/60 bg-white/80 shadow-[0_35px_90px_-45px_rgba(15,23,42,0.55)] ring-1 ring-slate-200/60 backdrop-blur dark:border-slate-800/70 dark:bg-slate-900/70 dark:shadow-[0_45px_95px_-50px_rgba(15,23,42,0.85)] dark:ring-slate-800/60">
+      {/* Portal target for timing/log badges injected from ChatKitPanel */}
+      <div id="timing-badge-root" className="absolute right-6 top-6 z-50 pointer-events-none" />
       <div className="border-b border-slate-200/60 px-6 py-5 dark:border-slate-800/60">
         <div className="flex items-start justify-between gap-4">
           <div>

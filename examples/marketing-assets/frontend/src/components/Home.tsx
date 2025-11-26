@@ -3,7 +3,6 @@ import clsx from "clsx";
 import { ChatKitPanel } from "./ChatKitPanel";
 import { AdAssetCard } from "./AdAssetCard";
 import { ThemeToggle } from "./ThemeToggle";
-import { HistoryPanel } from "./HistoryPanel";
 import { ColorScheme } from "../hooks/useColorScheme";
 import { useAdAssets } from "../hooks/useAdAssets";
 
@@ -79,10 +78,6 @@ export default function Home({
               </div>
             </div>
           </div>
-        </section>
-
-        <section className="mt-14">
-          <HistoryPanel />
         </section>
         </main>
       </div>

@@ -32,8 +32,12 @@ export function ChatKitPanel({
     setComposerPlaceholder(busy ? BUSY_PLACEHOLDER : PLACEHOLDER_INPUT);
   }, []);
 
+  const absoluteApiUrl = new URL(CHATKIT_API_URL, window.location.origin).toString();
   const chatkit = useChatKit({
-    api: { url: CHATKIT_API_URL, domainKey: CHATKIT_API_DOMAIN_KEY },
+    api: { 
+      url: absoluteApiUrl, 
+      domainKey: CHATKIT_API_DOMAIN_KEY,
+    },
     theme,
     header: {},
     startScreen: {

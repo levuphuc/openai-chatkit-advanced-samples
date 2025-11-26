@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import mimetypes
 import re
+import time
 from itertools import chain
 from pathlib import Path
 from typing import Any, AsyncIterator, Iterable
@@ -27,7 +28,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from openai.types.responses import ResponseInputContentParam
 from starlette.responses import JSONResponse
 
-from .assistant_agent import assistant_agent
+from .assistant_agent import assistant_agent, get_agent_for_message
 from .documents import (
     DOCUMENTS,
     DOCUMENTS_BY_FILENAME,
@@ -138,19 +139,61 @@ class KnowledgeAssistantServer(ChatKitServer[dict[str, Any]]):
         if not message_text:
             return
 
+        # Track start time for timing metadata
+        start_time = time.time()
+        first_token_time = None
+        first_token_recorded = False
+
+        # Use the workflow: classify the message and get the appropriate agent
+        try:
+            selected_agent = await get_agent_for_message(message_text)
+        except Exception as e:
+            # Fallback to default agent if classification fails
+            import traceback
+            print(f"Classification failed: {e}")
+            traceback.print_exc()
+            selected_agent = self.assistant
+
         agent_context = AgentContext(
             thread=thread,
             store=self.store,
             request_context=context,
         )
+        
+        # Run the selected agent with streaming support
         result = Runner.run_streamed(
-            self.assistant,
+            selected_agent,
             message_text,
             context=agent_context,
             run_config=RunConfig(model_settings=ModelSettings(temperature=0.3)),
         )
 
+        # Stream events and track completion time
         async for event in stream_agent_response(agent_context, result):
+            # Record first token time (when first content delta arrives)
+            if not first_token_recorded and event.type == "thread.item.updated":
+                update = getattr(event, "update", None)
+                if update and getattr(update, "type", None) == "assistant_message.content_part.text_delta":
+                    first_token_time = time.time() - start_time
+                    first_token_recorded = True
+                    print(f"[Timing] First token: {first_token_time:.3f}s")
+            
+            # Add timing metadata to the completed message
+            if event.type == "thread.item.done":
+                item_data = getattr(event, "item", None)
+                if item_data and isinstance(item_data, AssistantMessageItem):
+                    completion_time = time.time() - start_time
+                    ttft = first_token_time or 0
+                    
+                    # Add timing as metadata
+                    if hasattr(item_data, "metadata"):
+                        if item_data.metadata is None:
+                            item_data.metadata = {}
+                        item_data.metadata["ttft"] = round(ttft, 3)
+                        item_data.metadata["completion_time"] = round(completion_time, 3)
+                    
+                    print(f"[Timing] Message completed - TTFT: {ttft:.3f}s, Total: {completion_time:.3f}s")
+            
             yield event
 
     async def to_message_content(self, input: Attachment) -> ResponseInputContentParam:

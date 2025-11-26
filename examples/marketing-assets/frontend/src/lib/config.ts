@@ -10,7 +10,8 @@ export const CHATKIT_API_URL =
  * and deploy the real key.
  */
 export const CHATKIT_API_DOMAIN_KEY =
-  import.meta.env.VITE_CHATKIT_API_DOMAIN_KEY ?? "domain_pk_localhost_dev";
+  import.meta.env.VITE_CHATKIT_API_DOMAIN_KEY ??
+  "domain_pk_example_000000000000000000000000";
 
 export const ASSETS_API_URL =
   import.meta.env.VITE_ASSETS_API_URL ?? "/assets";

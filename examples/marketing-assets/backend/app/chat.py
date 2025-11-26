@@ -40,7 +40,7 @@ from pydantic import ConfigDict, Field
 
 from .ad_assets import AdAsset, ad_asset_store
 from .constants import INSTRUCTIONS, MODEL
-from .memory_store import MemoryStore
+from .sqlite_store import SQLiteStore
 
 SUPPORTED_COLOR_SCHEMES: Final[frozenset[str]] = frozenset({"light", "dark"})
 CLIENT_THEME_TOOL_NAME: Final[str] = "switch_theme"
@@ -96,7 +96,7 @@ def _save_image_to_file(base64_data: str, image_id: str) -> str:
 
 class AdAgentContext(AgentContext):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    store: Annotated[MemoryStore, Field(exclude=True)]
+    store: Annotated[SQLiteStore, Field(exclude=True)]
     request_context: dict[str, Any]
 
 
@@ -482,7 +482,7 @@ class AdCreativeServer(ChatKitServer[dict[str, Any]]):
     """ChatKit server wired up with the ad generation workflow."""
 
     def __init__(self) -> None:
-        self.store: MemoryStore = MemoryStore()
+        self.store: SQLiteStore = SQLiteStore()
         super().__init__(self.store)
         tools = [save_ad_asset, switch_theme, generate_ad_image, fetch_web_content]
         self.assistant = Agent[AdAgentContext](
